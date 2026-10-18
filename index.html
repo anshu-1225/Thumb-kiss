@@ -1,0 +1,258 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>Thumb Kiss</title>
+  <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
+  <style>
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      user-select: none;
+      -webkit-user-select: none;
+      touch-action: none;
+    }
+    body {
+      background-color: #121214;
+      color: #fff;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      height: 100vh;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+    }
+    #ui {
+      position: absolute;
+      top: 20px;
+      z-index: 10;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 10px;
+      width: 90%;
+      max-width: 320px;
+      text-align: center;
+    }
+    .status {
+      font-size: 14px;
+      color: #888;
+    }
+    .controls {
+      display: flex;
+      gap: 8px;
+      width: 100%;
+    }
+    input {
+      flex: 1;
+      padding: 10px;
+      border-radius: 8px;
+      border: 1px solid #333;
+      background: #222;
+      color: #fff;
+      font-size: 14px;
+      text-align: center;
+    }
+    button {
+      padding: 10px 16px;
+      border-radius: 8px;
+      border: none;
+      background: #ff4757;
+      color: #fff;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    button:active {
+      opacity: 0.8;
+    }
+    .touch-target {
+      position: absolute;
+      width: 80px;
+      height: 80px;
+      border-radius: 50%;
+      transform: translate(-50%, -50%);
+      pointer-events: none;
+      display: none;
+      transition: transform 0.05s ease-out;
+    }
+    #my-touch {
+      background: radial-gradient(circle, rgba(255, 71, 87, 0.6) 0%, rgba(255, 71, 87, 0) 70%);
+      border: 2px dashed rgba(255, 71, 87, 0.8);
+    }
+    #partner-touch {
+      background: radial-gradient(circle, rgba(46, 213, 115, 0.6) 0%, rgba(46, 213, 115, 0) 70%);
+      border: 2px dashed rgba(46, 213, 115, 0.8);
+    }
+    #kiss-pulse {
+      position: absolute;
+      width: 140px;
+      height: 140px;
+      border-radius: 50%;
+      background: radial-gradient(circle, #ff4757 0%, rgba(255, 71, 87, 0) 75%);
+      transform: translate(-50%, -50%) scale(0);
+      pointer-events: none;
+      opacity: 0;
+    }
+    .animate-kiss {
+      animation: pulse 0.7s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards;
+    }
+    @keyframes pulse {
+      0% { transform: translate(-50%, -50%) scale(0.2); opacity: 1; }
+      50% { transform: translate(-50%, -50%) scale(1.6); opacity: 0.9; }
+      100% { transform: translate(-50%, -50%) scale(2.2); opacity: 0; }
+    }
+  </style>
+</head>
+<body>
+
+  <div id="ui">
+    <div id="status" class="status">Connecting to network...</div>
+    <div id="pairing" class="controls" style="display: none;">
+      <input type="text" id="partner-id-input" placeholder="Partner's Code" />
+      <button id="connect-btn">Connect</button>
+    </div>
+    <div id="share-code" class="status" style="display: none;"></div>
+  </div>
+
+  <div id="my-touch" class="touch-target"></div>
+  <div id="partner-touch" class="touch-target"></div>
+  <div id="kiss-pulse"></div>
+
+  <script>
+    const peer = new Peer();
+    let conn = null;
+    let myPos = null;
+    let partnerPos = null;
+    let kissTriggered = false;
+
+    const statusEl = document.getElementById('status');
+    const pairingEl = document.getElementById('pairing');
+    const shareCodeEl = document.getElementById('share-code');
+    const partnerInput = document.getElementById('partner-id-input');
+    const connectBtn = document.getElementById('connect-btn');
+    const myTouchEl = document.getElementById('my-touch');
+    const partnerTouchEl = document.getElementById('partner-touch');
+    const kissPulseEl = document.getElementById('kiss-pulse');
+
+    // 1. PeerJS Setup
+    peer.on('open', (id) => {
+      statusEl.innerText = "Connected to server!";
+      shareCodeEl.style.display = 'block';
+      shareCodeEl.innerHTML = `Your Code: <strong>${id}</strong>`;
+      pairingEl.style.display = 'flex';
+    });
+
+    peer.on('connection', (c) => {
+      conn = c;
+      setupConnection();
+    });
+
+    connectBtn.addEventListener('click', () => {
+      const partnerId = partnerInput.value.trim();
+      if (partnerId) {
+        conn = peer.connect(partnerId);
+        setupConnection();
+      }
+    });
+
+    function setupConnection() {
+      conn.on('open', () => {
+        statusEl.innerText = "Connected to partner! Touch and hold the screen.";
+        pairingEl.style.display = 'none';
+        shareCodeEl.style.display = 'none';
+      });
+
+      conn.on('data', (data) => {
+        if (data.type === 'touch') {
+          partnerPos = data;
+          partnerTouchEl.style.display = 'block';
+          partnerTouchEl.style.left = `${data.x * window.innerWidth}px`;
+          partnerTouchEl.style.top = `${data.y * window.innerHeight}px`;
+          checkKiss();
+        } else if (data.type === 'release') {
+          partnerPos = null;
+          partnerTouchEl.style.display = 'none';
+          kissTriggered = false;
+        }
+      });
+
+      conn.on('close', () => {
+        statusEl.innerText = "Partner disconnected.";
+        pairingEl.style.display = 'flex';
+      });
+    }
+
+    // 2. Touch Handling (Uses normalized 0-1 coordinates for different screen sizes)
+    function handleTouchMove(e) {
+      if (e.touches.length === 0) return;
+      const touch = e.touches[0];
+      
+      myPos = {
+        x: touch.clientX / window.innerWidth,
+        y: touch.clientY / window.innerHeight
+      };
+
+      myTouchEl.style.display = 'block';
+      myTouchEl.style.left = `${touch.clientX}px`;
+      myTouchEl.style.top = `${touch.clientY}px`;
+
+      if (conn && conn.open) {
+        conn.send({ type: 'touch', x: myPos.x, y: myPos.y });
+      }
+
+      checkKiss();
+    }
+
+    function handleTouchEnd() {
+      myPos = null;
+      myTouchEl.style.display = 'none';
+      kissTriggered = false;
+
+      if (conn && conn.open) {
+        conn.send({ type: 'release' });
+      }
+    }
+
+    window.addEventListener('touchstart', handleTouchMove, { passive: false });
+    window.addEventListener('touchmove', handleTouchMove, { passive: false });
+    window.addEventListener('touchend', handleTouchEnd);
+    window.addEventListener('touchcancel', handleTouchEnd);
+
+    // 3. Collision / Kiss Detection
+    function checkKiss() {
+      if (!myPos || !partnerPos || kissTriggered) return;
+
+      // Calculate distance between normalized points (scaled to 100 units)
+      const dx = (myPos.x - partnerPos.x) * 100;
+      const dy = (myPos.y - partnerPos.y) * 100;
+      const distance = Math.sqrt(dx * dx + dy * dy);
+
+      // Trigger kiss if fingers are close enough (threshold ~ 12% screen radius)
+      if (distance < 12) {
+        kissTriggered = true;
+        triggerKissAnimation(
+          ((myPos.x + partnerPos.x) / 2) * window.innerWidth,
+          ((myPos.y + partnerPos.y) / 2) * window.innerHeight
+        );
+      }
+    }
+
+    function triggerKissAnimation(x, y) {
+      // Haptic feedback (supported on Android Chrome; iOS Safari ignores standard navigator.vibrate)
+      if (navigator.vibrate) {
+        navigator.vibrate([100, 50, 200]);
+      }
+
+      kissPulseEl.style.left = `${x}px`;
+      kissPulseEl.style.top = `${y}px`;
+      kissPulseEl.classList.remove('animate-kiss');
+      void kissPulseEl.offsetWidth; // Force CSS reflow
+      kissPulseEl.classList.add('animate-kiss');
+    }
+  </script>
+</body>
+  </html>
+  
